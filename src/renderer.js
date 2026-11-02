@@ -20,31 +20,41 @@ function setState(title, subtitle, active = false) {
 function updateGain() { $('micGainOut').textContent = `${$('micGain').value}%`; }
 $('micGain').addEventListener('input', updateGain);
 
-async function init() {
-  settings = await window.fenix.getSettings();
-  $('outputPath').textContent = settings.outputDir;
-  $('fps').value = String(settings.fps || 30);
-  $('quality').value = settings.quality || 'balanced';
-  await window.fenix.saveSettings({ fps: Number($('fps').value), quality: $('quality').value });
-  const devices = await window.fenix.listAudioDevices();
+async function refreshAudioDevices() {
   const micSelect = $('micDevice');
   const sysSelect = $('systemDevice');
+  const oldMic = micSelect.value;
+  const oldSystem = sysSelect.value;
+  micSelect.innerHTML = '<option value="">Не выбрано</option>';
+  sysSelect.innerHTML = '<option value="">Не выбрано</option>';
+  const devices = await window.fenix.listAudioDevices();
   for (const name of devices) {
     const a = document.createElement('option'); a.value = name; a.textContent = name; micSelect.appendChild(a);
     const b = document.createElement('option'); b.value = name; b.textContent = name; sysSelect.appendChild(b);
   }
-  const mic = devices.find(x => /microphone|mic|микрофон/i.test(x));
-  const system = devices.find(x => /stereo mix|стерео микшер|what u hear|wave out|loopback/i.test(x));
-  if (mic) micSelect.value = mic;
-  if (system) sysSelect.value = system;
+  if (devices.includes(oldMic)) micSelect.value = oldMic;
   else {
-    $('systemEnabled').checked = false;
-    const note = document.createElement('div');
-    note.className = 'hint';
-    note.textContent = 'Системный звук не найден. Для записи игры включи «Стерео микшер» в Windows → Звук → Дополнительные параметры → Запись. Если такого устройства нет, потребуется другой способ loopback-захвата.';
-    $('systemDevice').closest('.field-row').insertAdjacentElement('afterend', note);
+    const mic = devices.find(x => /microphone|mic|микрофон|headset|гарнитур/i.test(x));
+    if (mic) micSelect.value = mic;
   }
-  if (!mic) $('micEnabled').checked = false;
+  if (devices.includes(oldSystem)) sysSelect.value = oldSystem;
+  else {
+    const system = devices.find(x => /stereo mix|стерео микшер|what u hear|wave out|loopback/i.test(x));
+    if (system) sysSelect.value = system;
+  }
+  $('audioDeviceStatus').textContent = devices.length ? `Найдено устройств: ${devices.length}` : 'FFmpeg не обнаружил DirectShow-устройства. Проверь подключение и разрешения микрофона Windows.';
+  if (!micSelect.value) $('micEnabled').checked = false;
+  if (!sysSelect.value) $('systemEnabled').checked = false;
+  return devices;
+}
+async function init() {
+  settings = await window.fenix.getSettings();
+  $('outputPath').textContent = settings.outputDir;
+  $('fps').value = String(settings.recorderVersion === 3 ? (settings.fps || 30) : 30);
+  $('quality').value = settings.quality || 'balanced';
+  await window.fenix.saveSettings({ fps: Number($('fps').value), quality: $('quality').value, recorderVersion: 3 });
+  try { await refreshAudioDevices(); }
+  catch (e) { $('audioDeviceStatus').textContent = `Ошибка поиска аудио: ${e.message}`; }
 }
 async function saveSettings() {
   settings = await window.fenix.saveSettings({ fps: Number($('fps').value), quality: $('quality').value });
@@ -132,6 +142,22 @@ $('recordBtn').addEventListener('click', async () => {
 $('recordBtn').insertAdjacentHTML('afterend', '<button class="btn btn-secondary" id="openLogBtn" type="button">Журнал ошибок</button>');
 $('openLogBtn').addEventListener('click', async () => {
   try { await window.fenix.openLog(); } catch (e) { toast(e.message); }
+});
+
+$('refreshAudio').addEventListener('click', async () => {
+  $('refreshAudio').disabled = true;
+  $('audioDeviceStatus').textContent = 'Поиск аудиоустройств…';
+  try { const devices = await refreshAudioDevices(); toast(`Обнаружено аудиоустройств: ${devices.length}`); }
+  catch (e) { $('audioDeviceStatus').textContent = e.message; toast(e.message); }
+  finally { $('refreshAudio').disabled = false; }
+});
+$('testMic').addEventListener('click', async () => {
+  const device = $('micDevice').value;
+  if (!device) { toast('Сначала выбери микрофон. Если список пустой — нажми «Обновить устройства».'); return; }
+  $('testMic').disabled = true; $('testMic').textContent = 'ЗАПИСЫВАЕМ 4 СЕКУНДЫ…';
+  try { const file = await window.fenix.testMic(device); toast(`Тест микрофона сохранён: ${file}`); }
+  catch (e) { toast(e.message); }
+  finally { $('testMic').disabled = false; $('testMic').textContent = 'Проверить микрофон (4 сек.)'; }
 });
 window.fenix.onRecordingEnded(data => {
   if (!recording) return;

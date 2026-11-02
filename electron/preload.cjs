@@ -8,5 +8,6 @@ contextBridge.exposeInMainWorld('fenix', {
   stopRecording: () => ipcRenderer.invoke('record:stop'),
   openLog: () => ipcRenderer.invoke('diagnostics:open-log'),
   listAudioDevices: () => ipcRenderer.invoke('audio:list-devices'),
+  testMic: device => ipcRenderer.invoke('audio:test-mic', device),
   onRecordingEnded: callback => ipcRenderer.on('record:ended', (_event, data) => callback(data))
 });
