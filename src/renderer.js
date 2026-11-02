@@ -1,5 +1,5 @@
 const $ = id => document.getElementById(id);
-let settings, recording = false, recorder, chunks = [], micStream, displayStream, mixedStream, audioContext, micAnalyser, meterTimer, startedAt;
+let settings, recording = false, recorder, chunks = [], micStream, displayStream, mixedStream, audioContext, micAnalyser, meterTimer, startedAt, editPath = null;
 function toast(message) {
   const el = $('toast'); el.textContent = message; el.classList.add('show');
   clearTimeout(toast.timer); toast.timer = setTimeout(() => el.classList.remove('show'), 3800);
@@ -71,6 +71,34 @@ function makeAudioGraph(display, mic) {
   }
   return destination.stream;
 }
+$('openVideo').addEventListener('click', async () => {
+  try {
+    const path = await window.fenix.openVideo();
+    if (!path) return;
+    editPath = path;
+    const video = $('editPreview');
+    video.src = `file:///${path.replace(/\\/g, '/')}`;
+    $('editFileName').textContent = path.split(/[\\/]/).pop();
+    $('trimBtn').disabled = false;
+    $('trimEnd').value = '0';
+  } catch (e) { toast(e.message || 'Не удалось открыть видео.'); }
+});
+$('editPreview').addEventListener('loadedmetadata', () => {
+  $('trimEnd').value = Number.isFinite($('editPreview').duration) ? $('editPreview').duration.toFixed(1) : '0';
+  $('trimStart').max = $('editPreview').duration;
+  $('trimEnd').max = $('editPreview').duration;
+});
+$('trimBtn').addEventListener('click', async () => {
+  if (!editPath) return;
+  const start = Number($('trimStart').value), end = Number($('trimEnd').value);
+  if (!(end > start)) return toast('Время конца должно быть больше времени начала.');
+  $('trimBtn').disabled = true; $('trimBtn').textContent = 'ОБРАБОТКА...';
+  try {
+    const result = await window.fenix.trimVideo({ path: editPath, start, end });
+    toast(`Обрезанный файл сохранён: ${result.path}`);
+  } catch (e) { toast(e.message || 'Ошибка обрезки видео.'); }
+  finally { $('trimBtn').disabled = false; $('trimBtn').textContent = 'СОХРАНИТЬ ОБРЕЗАННЫЙ ФРАГМЕНТ'; }
+});
 function chooseMime() {
   for (const mime of ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm']) {
     if (MediaRecorder.isTypeSupported(mime)) return mime;
@@ -96,7 +124,8 @@ async function startRecording() {
   const audio = makeAudioGraph(displayStream, micStream);
   mixedStream = new MediaStream([...displayStream.getVideoTracks(), ...audio.getAudioTracks()]);
   chunks = [];
-  recorder = new MediaRecorder(mixedStream, { mimeType: chooseMime(), videoBitsPerSecond: $('quality').value === 'performance' ? 2500000 : $('quality').value === 'quality' ? 8000000 : 4500000 });
+  const mimeType = chooseMime();
+  recorder = new MediaRecorder(mixedStream, { ...(mimeType ? { mimeType } : {}), videoBitsPerSecond: $('quality').value === 'performance' ? 2500000 : $('quality').value === 'quality' ? 8000000 : 4500000 });
   recorder.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
   recorder.onerror = e => toast(`Ошибка записи: ${e.error?.message || 'неизвестная ошибка'}`);
   recorder.onstop = finishRecording;

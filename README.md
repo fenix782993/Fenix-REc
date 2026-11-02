@@ -1,6 +1,6 @@
 # Fenix Recorder
 
-A Windows desktop screen recorder starter project. Electron UI, desktop capture, microphone capture, system/loopback audio where supported by Windows/Electron, WebM recording, and FFmpeg MP4 conversion.
+Fenix Recorder is a Windows desktop screen recorder built with Electron. It captures the desktop, microphone and (where supported by Windows/Electron) system loopback audio. Recordings are kept as WebM originals and exported to MP4 with FFmpeg. The built-in editor can trim a selected video and export the cut as a new MP4 without modifying the source.
 
 ## Requirements
 - Windows 10/11 x64
@@ -37,8 +37,14 @@ Installer will be in `dist/`.
 - Microphone is captured separately and mixed into the recording.
 - System/game audio depends on Windows loopback capture support and the display-capture picker. When choosing what to share, enable system audio if the picker exposes that option.
 - If a game uses exclusive fullscreen or protected capture, switch it to borderless/windowed mode or record the full display.
-- Current capture path records WebM first and converts to MP4 with FFmpeg. If conversion fails, the WebM is retained.
+- Capture records WebM first. FFmpeg exports a separate H.264/AAC MP4; the original WebM is retained. The editor opens MP4/WebM/MKV/MOV files and exports a selected time range as a separate MP4.
 - This first build uses Chromium desktop capture, not a native DirectX Desktop Duplication pipeline. It is a functional starting point, but performance and audio routing must be tested on the target PC. No recorder can guarantee zero FPS loss on every hardware setup.
+
+## Editing
+- Open a video from the Montage section.
+- Set start and end time in seconds.
+- Export the selected range to a new MP4 in the same folder.
+- The original file is never overwritten.
 
 ## Quality presets
 - Performance: lower video bitrate
