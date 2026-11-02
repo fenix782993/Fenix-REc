@@ -26,14 +26,19 @@ function createWindow() {
   win.loadFile(path.join(__dirname, '..', 'src', 'index.html'));
 }
 app.whenReady().then(() => {
-  // Permit Chromium's native display picker to request desktop video and loopback audio.
+  // Legacy desktopCapturer source flow is used by the renderer for reliable Windows capture.
+  // Keep the display-media handler as a fallback for any future UI using getDisplayMedia.
   session.defaultSession.setDisplayMediaRequestHandler(async (request, callback) => {
     try {
-      const sources = await desktopCapturer.getSources({ types: ['screen', 'window'], thumbnailSize: { width: 320, height: 180 } });
+      const sources = await desktopCapturer.getSources({ types: ['screen'], thumbnailSize: { width: 320, height: 180 } });
       const screen = sources.find(s => s.id.startsWith('screen:')) || sources[0];
       callback(screen ? { video: screen, ...(request.audioRequested ? { audio: 'loopback' } : {}) } : {});
     } catch { callback({}); }
   }, { useSystemPicker: false });
+  ipcMain.handle('capture:sources', async () => {
+    const sources = await desktopCapturer.getSources({ types: ['screen'], thumbnailSize: { width: 320, height: 180 } });
+    return sources.map(({ id, name, display_id }) => ({ id, name, display_id }));
+  });
   ipcMain.handle('settings:get', () => readSettings());
   ipcMain.handle('settings:save', (_e, value) => {
     const old = readSettings();

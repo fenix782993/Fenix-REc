@@ -5,5 +5,6 @@ contextBridge.exposeInMainWorld('fenix', {
   chooseFolder: () => ipcRenderer.invoke('folder:choose'),
   openFolder: () => ipcRenderer.invoke('folder:open'),
   saveRecording: payload => ipcRenderer.invoke('record:save', payload),
-  convertRecording: path => ipcRenderer.invoke('record:convert', path)
+  convertRecording: path => ipcRenderer.invoke('record:convert', path),
+  getCaptureSources: () => ipcRenderer.invoke('capture:sources')
 });

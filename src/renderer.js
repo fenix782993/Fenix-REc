@@ -97,12 +97,37 @@ async function waitForFirstVideoFrame(stream) {
   return video;
 }
 async function startRecording() {
-  if (!navigator.mediaDevices?.getDisplayMedia) throw new Error('Захват экрана не поддерживается этой системой.');
+  if (!navigator.mediaDevices?.getUserMedia) throw new Error('Захват экрана не поддерживается этой системой.');
   const fps = Number($('fps').value);
-  displayStream = await navigator.mediaDevices.getDisplayMedia({
-    video: { frameRate: { ideal: fps, max: fps }, width: { ideal: 1280 }, height: { ideal: 720 } },
-    audio: $('systemEnabled').checked
-  });
+  // Electron's desktopCapturer sourceId flow is more reliable on Windows than
+  // relying on getDisplayMedia's native picker/handler integration.
+  const captureSources = await window.fenix.getCaptureSources();
+  const screen = captureSources.find(source => String(source.id).startsWith('screen:')) || captureSources[0];
+  if (!screen?.id) throw new Error('Electron не обнаружил ни одного экрана для записи.');
+  const videoConstraints = {
+    mandatory: {
+      chromeMediaSource: 'desktop',
+      chromeMediaSourceId: screen.id,
+      maxFrameRate: fps,
+      minFrameRate: 1,
+      maxWidth: 1920,
+      maxHeight: 1080
+    }
+  };
+  displayStream = await navigator.mediaDevices.getUserMedia({ video: videoConstraints, audio: false });
+  // System loopback is optional: failure to open it must not prevent video capture.
+  if ($('systemEnabled').checked) {
+    try {
+      const systemAudio = await navigator.mediaDevices.getUserMedia({
+        audio: { mandatory: { chromeMediaSource: 'desktop', chromeMediaSourceId: screen.id } },
+        video: false
+      });
+      for (const track of systemAudio.getAudioTracks()) displayStream.addTrack(track);
+    } catch (audioError) {
+      console.warn('Fenix Recorder: system audio capture unavailable:', audioError);
+      toast('Экран записывается, но системный звук недоступен.');
+    }
+  }
   micStream = null;
   if ($('micEnabled').checked) {
     try {
@@ -146,7 +171,7 @@ async function stopRecording() {
 async function finishRecording() {
   try {
     const blob = new Blob(chunks, { type: recorder.mimeType || 'video/webm' });
-    if (chunks.length === 0 || blob.size < 1024) throw new Error(`Запись не содержит видеоданных (получено ${blob.size} байт). Проверь захват экрана и повтори попытку.`);
+    if (chunks.length === 0 || blob.size < 1024) throw new Error(`Запись не содержит видеоданных (получено ${blob.size} байт, фрагментов: ${chunks.length}, MIME: ${recorder?.mimeType || 'не указан'}). Проверь захват экрана и повтори попытку.`);
     const base64 = await new Promise((resolve, reject) => {
       const reader = new FileReader(); reader.onload = () => resolve(String(reader.result).split(',')[1]); reader.onerror = reject; reader.readAsDataURL(blob);
     });

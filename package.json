@@ -1,6 +1,6 @@
 {
   "name": "fenix-recorder",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "Fenix Recorder — lightweight Windows screen recorder",
   "main": "electron/main.cjs",
   "author": "Fenix",
