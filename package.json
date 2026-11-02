@@ -1,7 +1,7 @@
 {
   "name": "fenix-recorder",
-  "version": "0.3.1",
-  "description": "Fenix Recorder — DirectX and FFmpeg Windows desktop recorder",
+  "version": "0.3.2",
+  "description": "Fenix Recorder — FFmpeg Windows desktop recorder with DirectShow audio inputs",
   "main": "electron/main.cjs",
   "author": "Fenix",
   "license": "MIT",

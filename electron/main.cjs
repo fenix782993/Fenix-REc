@@ -2,6 +2,9 @@ const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { spawn } = require('child_process');
+const { execFile } = require('child_process');
+const { promisify } = require('util');
+const execFileAsync = promisify(execFile);
 
 let win;
 let activeCapture = null;
@@ -25,6 +28,26 @@ function writeSettings(value) {
 function getFfmpegPath() {
   return app.isPackaged ? path.join(process.resourcesPath, 'ffmpeg.exe') : require('ffmpeg-static');
 }
+async function listDshowAudioDevices() {
+  const ffmpeg = getFfmpegPath();
+  try {
+    await execFileAsync(ffmpeg, ['-hide_banner', '-list_devices', 'true', '-f', 'dshow', '-i', 'dummy'], { windowsHide: true, timeout: 8000, maxBuffer: 1024 * 1024 });
+  } catch (e) {
+    const output = `${e.stderr || ''}\n${e.stdout || ''}`;
+    const names = [];
+    let inAudioSection = false;
+    for (const line of output.split(/\r?\n/)) {
+      if (/DirectShow audio devices/i.test(line)) { inAudioSection = true; continue; }
+      if (/DirectShow video devices/i.test(line)) { inAudioSection = false; continue; }
+      if (!inAudioSection || /Alternative name/i.test(line)) continue;
+      const match = line.match(/"([^"]+)"/);
+      if (match && !match[1].startsWith('@') && !names.includes(match[1])) names.push(match[1]);
+    }
+    return names;
+  }
+  return [];
+}
+
 function createWindow() {
   win = new BrowserWindow({
     width: 1120, height: 780, minWidth: 900, minHeight: 650,
@@ -44,6 +67,7 @@ app.whenReady().then(() => {
     writeSettings(next);
     return next;
   });
+  ipcMain.handle('audio:list-devices', async () => listDshowAudioDevices());
   ipcMain.handle('folder:choose', async () => {
     const result = await dialog.showOpenDialog(win, { title: 'Папка для записей', properties: ['openDirectory', 'createDirectory'] });
     if (result.canceled || !result.filePaths[0]) return null;
@@ -74,43 +98,44 @@ app.whenReady().then(() => {
     const crf = quality === 'quality' ? '19' : quality === 'performance' ? '26' : '23';
     const ffmpeg = getFfmpegPath();
     if (!ffmpeg || !fs.existsSync(ffmpeg)) throw new Error(`FFmpeg не найден: ${ffmpeg || 'путь пустой'}`);
+    const devices = await listDshowAudioDevices();
     const wantMic = options.micEnabled !== false;
     const wantSystem = options.systemEnabled !== false;
+    const micDevice = String(options.micDevice || '');
+    const systemDevice = String(options.systemDevice || '');
     const micGain = Math.max(0.5, Math.min(2, Number(options.micGain || 100) / 100));
-    // Prefer DirectX Desktop Duplication (ddagrab) for smoother capture of accelerated apps.
-    // If the bundled FFmpeg does not support it, retry with gdigrab.
+    const selectedAudio = [];
+    if (wantSystem && systemDevice && devices.includes(systemDevice)) selectedAudio.push({ kind: 'system', device: systemDevice });
+    if (wantMic && micDevice && devices.includes(micDevice)) selectedAudio.push({ kind: 'mic', device: micDevice });
+    const audioArgs = [];
+    for (const item of selectedAudio) audioArgs.push('-thread_queue_size', '1024', '-f', 'dshow', '-i', `audio=${item.device}`);
     const videoInputs = [
       ['ddagrab', ['-f', 'lavfi', '-i', `ddagrab=framerate=${fps}:draw_mouse=1`]],
       ['gdigrab', ['-f', 'gdigrab', '-framerate', String(fps), '-draw_mouse', '1', '-i', 'desktop']]
     ];
-    const audioArgs = [];
-    if (wantSystem) audioArgs.push('-thread_queue_size', '1024', '-f', 'wasapi', '-loopback', '1', '-i', 'default');
-    if (wantMic) audioArgs.push('-thread_queue_size', '1024', '-f', 'wasapi', '-i', 'default');
-    const makeArgs = (videoInput, withAudio) => {
-      const args = ['-hide_banner', '-loglevel', 'info', '-y', ...videoInput];
-      if (withAudio && audioArgs.length) {
-        args.push(...audioArgs);
-        const audioCount = Number(wantSystem) + Number(wantMic);
-        if (audioCount === 2) {
-          args.push('-filter_complex', `[1:a]aresample=async=1:first_pts=0[sys];[2:a]volume=${micGain},aresample=async=1:first_pts=0[mic];[sys][mic]amix=inputs=2:duration=longest:dropout_transition=2[aout]`, '-map', '0:v:0', '-map', '[aout]');
-        } else if (wantSystem) {
-          args.push('-map', '0:v:0', '-map', '1:a:0');
-        } else {
-          args.push('-filter_complex', `[1:a]volume=${micGain},aresample=async=1:first_pts=0[aout]`, '-map', '0:v:0', '-map', '[aout]');
-        }
+    const makeArgs = (videoInput) => {
+      const args = ['-hide_banner', '-loglevel', 'info', '-y', ...videoInput, ...audioArgs];
+      args.push('-map', '0:v:0');
+      if (selectedAudio.length === 2) {
+        const sysIndex = 1 + selectedAudio.findIndex(x => x.kind === 'system');
+        const micIndex = 1 + selectedAudio.findIndex(x => x.kind === 'mic');
+        args.push('-filter_complex', `[${sysIndex}:a]aresample=async=1:first_pts=0[sys];[${micIndex}:a]volume=${micGain},aresample=async=1:first_pts=0[mic];[sys][mic]amix=inputs=2:duration=longest:dropout_transition=2[aout]`, '-map', '[aout]');
         args.push('-c:a', 'aac', '-b:a', '192k');
-      } else {
-        args.push('-map', '0:v:0', '-an');
-      }
+      } else if (selectedAudio.length === 1) {
+        const index = selectedAudio[0].kind === 'mic' ? 1 : 1;
+        if (selectedAudio[0].kind === 'mic') args.push('-filter_complex', `[${index}:a]volume=${micGain},aresample=async=1:first_pts=0[aout]`, '-map', '[aout]');
+        else args.push('-map', `${index}:a:0`);
+        args.push('-c:a', 'aac', '-b:a', '192k');
+      } else args.push('-an');
       args.push('-c:v', 'libx264', '-preset', preset, '-crf', crf, '-pix_fmt', 'yuv420p', '-r', String(fps), '-movflags', '+faststart', output);
       return args;
     };
-    log(`START output=${output} fps=${fps} quality=${quality} mic=${wantMic} system=${wantSystem} ffmpeg=${ffmpeg}`);
+    log(`START output=${output} fps=${fps} quality=${quality} mic=${selectedAudio.some(x => x.kind === 'mic')} system=${selectedAudio.some(x => x.kind === 'system')} audioDevices=${JSON.stringify(selectedAudio)} ffmpeg=${ffmpeg}`);
     let child;
     let selectedEngine = '';
     let startupError = null;
     for (const [engine, videoInput] of videoInputs) {
-      child = spawn(ffmpeg, makeArgs(videoInput, audioArgs.length > 0), { windowsHide: true, stdio: ['pipe', 'ignore', 'pipe'] });
+      child = spawn(ffmpeg, makeArgs(videoInput), { windowsHide: true, stdio: ['pipe', 'ignore', 'pipe'] });
       const startup = await new Promise(resolve => {
         let stderr = '';
         let settled = false;
@@ -146,7 +171,7 @@ app.whenReady().then(() => {
     });
     if (capture.closed) throw new Error(`FFmpeg остановился. ${capture.stderr.slice(-1600)}`);
     activeCapture = capture;
-    return { path: output, fps, started: true, engine: selectedEngine, audio: audioArgs.length > 0 };
+    return { path: output, fps, started: true, engine: selectedEngine, audio: selectedAudio.length > 0, audioDevices: devices, audioWarning: (wantMic && !selectedAudio.some(x => x.kind === 'mic') ? 'Микрофон не выбран или не найден. ' : '') + (wantSystem && !selectedAudio.some(x => x.kind === 'system') ? 'Стереомикшер/захват звука игры не найден. Включи Stereo Mix в Windows или выбери устройство.' : '') };
   });
 
   ipcMain.handle('record:stop', async () => {

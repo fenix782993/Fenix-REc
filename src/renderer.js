@@ -26,12 +26,25 @@ async function init() {
   $('fps').value = String(settings.fps || 30);
   $('quality').value = settings.quality || 'balanced';
   await window.fenix.saveSettings({ fps: Number($('fps').value), quality: $('quality').value });
-  // Native gdigrab capture currently records video only. Disable audio controls instead of implying they are captured.
-  for (const id of ['micEnabled', 'systemEnabled', 'testMic', 'micGain']) $(id).disabled = true;
-  const audioNote = document.createElement('div');
-  audioNote.className = 'hint';
-  audioNote.textContent = 'Аудиозапись временно отключена в новом движке захвата. Видео записывается напрямую через FFmpeg.';
-  $('testMic').insertAdjacentElement('afterend', audioNote);
+  const devices = await window.fenix.listAudioDevices();
+  const micSelect = $('micDevice');
+  const sysSelect = $('systemDevice');
+  for (const name of devices) {
+    const a = document.createElement('option'); a.value = name; a.textContent = name; micSelect.appendChild(a);
+    const b = document.createElement('option'); b.value = name; b.textContent = name; sysSelect.appendChild(b);
+  }
+  const mic = devices.find(x => /microphone|mic|микрофон/i.test(x));
+  const system = devices.find(x => /stereo mix|стерео микшер|what u hear|wave out|loopback/i.test(x));
+  if (mic) micSelect.value = mic;
+  if (system) sysSelect.value = system;
+  else {
+    $('systemEnabled').checked = false;
+    const note = document.createElement('div');
+    note.className = 'hint';
+    note.textContent = 'Системный звук не найден. Для записи игры включи «Стерео микшер» в Windows → Звук → Дополнительные параметры → Запись. Если такого устройства нет, потребуется другой способ loopback-захвата.';
+    $('systemDevice').closest('.field-row').insertAdjacentElement('afterend', note);
+  }
+  if (!mic) $('micEnabled').checked = false;
 }
 async function saveSettings() {
   settings = await window.fenix.saveSettings({ fps: Number($('fps').value), quality: $('quality').value });
@@ -73,7 +86,12 @@ async function startRecording() {
   const result = await window.fenix.startRecording({
     name: $('recordName').value || 'Fenix-Recording',
     fps: Number($('fps').value),
-    quality: $('quality').value
+    quality: $('quality').value,
+    micEnabled: $('micEnabled').checked,
+    systemEnabled: $('systemEnabled').checked,
+    micDevice: $('micDevice').value,
+    systemDevice: $('systemDevice').value,
+    micGain: Number($('micGain').value)
   });
   activeOutput = result.path;
   recording = true;
@@ -82,7 +100,7 @@ async function startRecording() {
   $('recordBtn').innerHTML = '<span class="btn-rec-dot"></span> ОСТАНОВИТЬ ЗАПИСЬ';
   setState('Идёт запись', `Файл: ${activeOutput}`, true);
   startClock();
-  toast('Запись экрана началась. Окно Fenix Recorder остаётся доступным.');
+  toast(result.audioWarning || 'Запись экрана началась. Окно Fenix Recorder остаётся доступным.');
 }
 async function stopRecording() {
   if (!recording) return;

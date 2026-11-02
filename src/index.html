@@ -30,8 +30,10 @@
       <div class="panel audio-panel">
         <div class="panel-heading"><div><div class="eyebrow">02 / АУДИО</div><h3>Звук и микрофон</h3></div><span class="mini-icon">♫</span></div>
         <div class="audio-line"><div><b>Микрофон</b><small>Твой голос</small></div><label class="switch"><input type="checkbox" id="micEnabled" checked><span></span></label></div>
+        <div class="field-row"><label for="micDevice">Устройство микрофона</label><select id="micDevice"><option value="">Не выбрано</option></select></div>
         <div class="slider-row"><label for="micGain">Уровень микрофона</label><output id="micGainOut">100%</output></div><input id="micGain" type="range" min="50" max="200" value="100">
-        <div class="audio-line system-audio"><div><b>Звук компьютера</b><small>Игра и голоса игроков</small></div><label class="switch"><input type="checkbox" id="systemEnabled" checked><span></span></label></div>
+        <div class="audio-line system-audio"><div><b>Звук компьютера</b><small>Игра и голоса игроков (Stereo Mix)</small></div><label class="switch"><input type="checkbox" id="systemEnabled" checked><span></span></label></div>
+        <div class="field-row"><label for="systemDevice">Устройство системного звука</label><select id="systemDevice"><option value="">Не выбрано</option></select></div>
         <div class="meter"><div id="micMeter"></div></div><div class="meter-caption">Уровень входящего микрофона</div>
         <button class="btn btn-secondary full" id="testMic">Проверить микрофон</button>
       </div>
