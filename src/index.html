@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Fenix Recorder</title><link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="app-shell">
+  <aside class="sidebar">
+    <div class="brand"><div class="brand-mark">F</div><div><strong>FENIX</strong><span>RECORDER</span></div></div>
+    <div class="side-label">РАБОЧЕЕ ПРОСТРАНСТВО</div>
+    <button class="nav active"><span class="nav-icon">▣</span> Запись экрана</button>
+    <button class="nav" id="openFolderSide"><span class="nav-icon">▤</span> Мои записи</button>
+    <div class="side-bottom"><div class="status-dot"></div><div><b>Локальная запись</b><small>Видео остаётся на вашем ПК</small></div></div>
+  </aside>
+  <main class="main">
+    <header class="topbar"><div><div class="eyebrow">ЗАПИСЬ ЭКРАНА</div><h1>Создай свою запись</h1><p>Лёгкий рекордер для игр и рабочего стола.</p></div><div class="top-badge"><span class="pulse"></span> Система готова</div></header>
+    <section class="hero">
+      <div class="hero-copy"><div class="tag">FENIX CAPTURE ENGINE</div><h2>Каждый момент.<br><span>Без лишнего.</span></h2><p>Записывай игру, системный звук и микрофон в одном файле.</p>
+      <div class="hero-stats"><div><b>30 / 60</b><small>FPS</small></div><div><b>H.264</b><small>MP4 экспорт</small></div><div><b>2 дорожки</b><small>Видео + звук</small></div></div></div>
+      <div class="hero-graphic"><div class="orbit orbit-a"></div><div class="orbit orbit-b"></div><div class="record-core"><div class="record-ring"><div class="record-dot"></div></div><span>REC</span></div><div class="graph-line"></div><div class="graph-label">CAPTURE READY</div></div>
+    </section>
+    <section class="grid">
+      <div class="panel capture-panel">
+        <div class="panel-heading"><div><div class="eyebrow">01 / ЗАХВАТ</div><h3>Параметры видео</h3></div><span class="mini-icon">▣</span></div>
+        <div class="field-row"><label for="fps">Частота кадров</label><select id="fps"><option value="30">30 FPS — меньше нагрузка</option><option value="60">60 FPS — плавнее</option></select></div>
+        <div class="field-row"><label for="quality">Качество записи</label><select id="quality"><option value="performance">Производительность</option><option value="balanced" selected>Сбалансированное</option><option value="quality">Высокое качество</option></select></div>
+        <div class="hint">Для Ryzen 5 + Radeon начни с 720p / 30 FPS. Видеорежим можно будет расширить после тестирования.</div>
+      </div>
+      <div class="panel audio-panel">
+        <div class="panel-heading"><div><div class="eyebrow">02 / АУДИО</div><h3>Звук и микрофон</h3></div><span class="mini-icon">♫</span></div>
+        <div class="audio-line"><div><b>Микрофон</b><small>Твой голос</small></div><label class="switch"><input type="checkbox" id="micEnabled" checked><span></span></label></div>
+        <div class="slider-row"><label for="micGain">Уровень микрофона</label><output id="micGainOut">100%</output></div><input id="micGain" type="range" min="50" max="200" value="100">
+        <div class="audio-line system-audio"><div><b>Звук компьютера</b><small>Игра и голоса игроков</small></div><label class="switch"><input type="checkbox" id="systemEnabled" checked><span></span></label></div>
+        <div class="meter"><div id="micMeter"></div></div><div class="meter-caption">Уровень входящего микрофона</div>
+        <button class="btn btn-secondary full" id="testMic">Проверить микрофон</button>
+      </div>
+    </section>
+    <section class="panel save-panel">
+      <div class="panel-heading"><div><div class="eyebrow">03 / СОХРАНЕНИЕ</div><h3>Куда сохранять видео</h3></div><span class="mini-icon">↳</span></div>
+      <div class="path-row"><div class="folder-icon">▰</div><div class="path-text"><b>Папка записей</b><span id="outputPath">Загрузка настроек...</span></div><button class="btn btn-secondary" id="chooseFolder">Выбрать папку</button></div>
+      <div class="filename-row"><label for="recordName">Название записи</label><input id="recordName" maxlength="80" value="Fenix-Recording" placeholder="Например, Amazing-RP"></div>
+    </section>
+    <section class="record-bar">
+      <div class="record-state"><div class="state-icon" id="stateIcon">●</div><div><b id="recordState">Готов к записи</b><small id="recordSub">Настрой звук и нажми кнопку справа</small></div></div>
+      <div class="record-actions"><button class="btn btn-secondary" id="openFolder">Открыть записи</button><button class="btn btn-record" id="recordBtn"><span class="btn-rec-dot"></span> НАЧАТЬ ЗАПИСЬ</button></div>
+    </section>
+    <footer><span>FENIX RECORDER <i>0.1.0</i></span><span>Сделано для Windows · Настройки хранятся локально</span></footer>
+  </main>
+</div>
+<div class="toast" id="toast"></div>
+<script src="renderer.js"></script>
+</body></html>

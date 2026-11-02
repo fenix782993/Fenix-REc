@@ -1,0 +1,38 @@
+{
+  "name": "fenix-recorder",
+  "version": "0.1.0",
+  "description": "Fenix Recorder — lightweight Windows screen recorder",
+  "main": "electron/main.cjs",
+  "author": "Fenix",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win nsis"
+  },
+  "dependencies": {
+    "ffmpeg-static": "^5.2.0"
+  },
+  "devDependencies": {
+    "electron": "^35.2.0",
+    "electron-builder": "^26.0.12"
+  },
+  "build": {
+    "appId": "online.aliant.fenixrecorder",
+    "productName": "Fenix Recorder",
+    "asar": true,
+    "files": ["electron/**/*", "src/**/*", "package.json", "node_modules/ffmpeg-static/**/*"],
+    "extraResources": [
+      { "from": "node_modules/ffmpeg-static/ffmpeg.exe", "to": "ffmpeg.exe" }
+    ],
+    "win": {
+      "target": [{ "target": "nsis", "arch": ["x64"] }],
+      "artifactName": "Fenix-Recorder-Setup-${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    }
+  }
+}
