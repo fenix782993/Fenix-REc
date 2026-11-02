@@ -5,7 +5,5 @@ contextBridge.exposeInMainWorld('fenix', {
   chooseFolder: () => ipcRenderer.invoke('folder:choose'),
   openFolder: () => ipcRenderer.invoke('folder:open'),
   saveRecording: payload => ipcRenderer.invoke('record:save', payload),
-  convertRecording: path => ipcRenderer.invoke('record:convert', path),
-  openVideo: () => ipcRenderer.invoke('video:open'),
-  trimVideo: payload => ipcRenderer.invoke('video:trim', payload)
+  convertRecording: path => ipcRenderer.invoke('record:convert', path)
 });

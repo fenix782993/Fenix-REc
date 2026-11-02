@@ -2,7 +2,6 @@ const { app, BrowserWindow, ipcMain, dialog, shell, desktopCapturer, session } =
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
-const { spawn } = require('child_process');
 
 let win;
 const settingsPath = path.join(app.getPath('userData'), 'settings.json');
@@ -13,20 +12,6 @@ function readSettings() {
 function writeSettings(value) {
   fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
   fs.writeFileSync(settingsPath, JSON.stringify(value, null, 2), 'utf8');
-}
-function ffmpegPath() {
-  const bin = app.isPackaged ? path.join(process.resourcesPath, 'ffmpeg.exe') : require('ffmpeg-static');
-  if (!bin || !fs.existsSync(bin)) throw new Error(`FFmpeg не найден: ${bin || 'путь пустой'}`);
-  return bin;
-}
-function runFfmpeg(args) {
-  return new Promise((resolve, reject) => {
-    const child = spawn(ffmpegPath(), args, { windowsHide: true });
-    let stderr = '';
-    child.stderr.on('data', d => { stderr = (stderr + d.toString()).slice(-10000); });
-    child.on('error', reject);
-    child.on('close', code => code === 0 ? resolve() : reject(new Error(`FFmpeg завершился с кодом ${code}: ${stderr.slice(-1800)}`)));
-  });
 }
 function createWindow() {
   win = new BrowserWindow({
@@ -76,32 +61,38 @@ app.whenReady().then(() => {
     fs.mkdirSync(dir, { recursive: true });
     const safeName = String(payload.name || 'Fenix-Recording').replace(/[<>:"/\\|?*]+/g, '_').slice(0, 80);
     const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    if (!payload || typeof payload.base64 !== 'string' || payload.base64.length < 1400) {
+      throw new Error('Видеоданные пустые или слишком маленькие. Запись не сохранена.');
+    }
+    const buffer = Buffer.from(payload.base64, 'base64');
+    if (buffer.length < 1024 || buffer.subarray(0, 4).toString('hex') !== '1a45dfa3') {
+      throw new Error(`Некорректный WebM: ${buffer.length} байт. Повреждённый файл не будет сохранён.`);
+    }
     const target = path.join(dir, `${safeName}-${stamp}.webm`);
-    fs.writeFileSync(target, Buffer.from(payload.base64, 'base64'));
-    return { path: target, dir };
+    const temp = `${target}.tmp`;
+    fs.writeFileSync(temp, buffer);
+    fs.renameSync(temp, target);
+    return { path: target, dir, bytes: buffer.length };
   });
   ipcMain.handle('record:convert', async (_e, inputPath) => {
-    if (typeof inputPath !== 'string' || !fs.existsSync(inputPath)) throw new Error('Исходный видеофайл не найден.');
-    const outputPath = inputPath.replace(/\.webm$/i, '') + '-converted.mp4';
-    await runFfmpeg(['-hide_banner','-y','-i',inputPath,'-map','0:v:0','-map','0:a:0?','-c:v','libx264','-preset','veryfast','-crf','21','-pix_fmt','yuv420p','-c:a','aac','-b:a','192k','-movflags','+faststart','-max_muxing_queue_size','2048',outputPath]);
-    if (!fs.existsSync(outputPath) || fs.statSync(outputPath).size < 2048) throw new Error('FFmpeg создал пустой или слишком маленький MP4.');
-    return { path: outputPath };
-  });
-  ipcMain.handle('video:open', async () => {
-    const result = await dialog.showOpenDialog(win, { title: 'Выбери видео для обрезки', properties: ['openFile'], filters: [{ name: 'Видео', extensions: ['mp4','webm','mkv','mov'] }] });
-    return result.canceled ? null : result.filePaths[0];
-  });
-  ipcMain.handle('video:trim', async (_e, payload) => {
-    const input = payload?.path;
-    const start = Number(payload?.start);
-    const end = Number(payload?.end);
-    if (typeof input !== 'string' || !fs.existsSync(input)) throw new Error('Видео не найдено.');
-    if (!Number.isFinite(start) || !Number.isFinite(end) || start < 0 || end <= start) throw new Error('Проверь начало и конец фрагмента.');
-    const ext = path.extname(input) || '.mp4';
-    const output = path.join(path.dirname(input), `${path.basename(input, ext)}-cut-${Date.now()}.mp4`);
-    await runFfmpeg(['-hide_banner','-y','-ss',String(start),'-i',input,'-t',String(end-start),'-map','0:v:0','-map','0:a:0?','-c:v','libx264','-preset','veryfast','-crf','21','-pix_fmt','yuv420p','-c:a','aac','-b:a','192k','-movflags','+faststart',output]);
-    if (!fs.existsSync(output) || fs.statSync(output).size < 2048) throw new Error('Не удалось создать обрезанный файл.');
-    return { path: output };
+    const ffmpegPath = app.isPackaged
+      ? path.join(process.resourcesPath, 'ffmpeg.exe')
+      : require('ffmpeg-static');
+    if (!fs.existsSync(inputPath) || fs.statSync(inputPath).size < 1024) throw new Error('Исходный WebM отсутствует или повреждён.');
+    const outputPath = inputPath.replace(/\.webm$/i, '.mp4');
+    const { spawn } = require('child_process');
+    return await new Promise((resolve, reject) => {
+      const args = ['-y', '-i', inputPath, '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '22', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '160k', '-movflags', '+faststart', outputPath];
+      const child = spawn(ffmpegPath, args, { windowsHide: true });
+      let stderr = '';
+      child.stderr.on('data', d => { stderr += d.toString(); });
+      child.on('error', reject);
+      child.on('close', code => {
+        if (code === 0 && fs.existsSync(outputPath) && fs.statSync(outputPath).size > 1024) {
+          resolve({ path: outputPath });
+        } else reject(new Error(`FFmpeg conversion failed (${code}). ${stderr.slice(-1200)}`));
+      });
+    });
   });
   createWindow();
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });

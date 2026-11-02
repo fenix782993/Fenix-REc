@@ -41,19 +41,11 @@
       <div class="path-row"><div class="folder-icon">▰</div><div class="path-text"><b>Папка записей</b><span id="outputPath">Загрузка настроек...</span></div><button class="btn btn-secondary" id="chooseFolder">Выбрать папку</button></div>
       <div class="filename-row"><label for="recordName">Название записи</label><input id="recordName" maxlength="80" value="Fenix-Recording" placeholder="Например, Amazing-RP"></div>
     </section>
-    <section class="panel editor-panel">
-      <div class="panel-heading"><div><div class="eyebrow">04 / МОНТАЖ</div><h3>Обрезка видео</h3></div><span class="mini-icon">✂</span></div>
-      <div class="editor-actions"><button class="btn btn-secondary" id="openVideo">Открыть видео</button><span id="editFileName">Файл не выбран</span></div>
-      <video id="editPreview" controls preload="metadata"></video>
-      <div class="trim-fields"><label>Начало, сек. <input id="trimStart" type="number" min="0" step="0.1" value="0"></label><label>Конец, сек. <input id="trimEnd" type="number" min="0" step="0.1" value="0"></label></div>
-      <button class="btn btn-record" id="trimBtn" disabled>СОХРАНИТЬ ОБРЕЗАННЫЙ ФРАГМЕНТ</button>
-      <div class="hint">Оригинал не изменяется. Обрезанный фрагмент сохраняется рядом с исходным видео в MP4.</div>
-    </section>
     <section class="record-bar">
       <div class="record-state"><div class="state-icon" id="stateIcon">●</div><div><b id="recordState">Готов к записи</b><small id="recordSub">Настрой звук и нажми кнопку справа</small></div></div>
       <div class="record-actions"><button class="btn btn-secondary" id="openFolder">Открыть записи</button><button class="btn btn-record" id="recordBtn"><span class="btn-rec-dot"></span> НАЧАТЬ ЗАПИСЬ</button></div>
     </section>
-    <footer><span>FENIX RECORDER <i>0.1.0</i></span><span>Сделано для Windows · Настройки хранятся локально</span></footer>
+    <footer><span>FENIX RECORDER <i>0.2.1</i></span><span>Сделано для Windows · Настройки хранятся локально</span></footer>
   </main>
 </div>
 <div class="toast" id="toast"></div>
