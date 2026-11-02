@@ -27,13 +27,13 @@ function createWindow() {
 }
 app.whenReady().then(() => {
   // Permit Chromium's native display picker to request desktop video and loopback audio.
-  session.defaultSession.setDisplayMediaRequestHandler(async (_request, callback) => {
+  session.defaultSession.setDisplayMediaRequestHandler(async (request, callback) => {
     try {
       const sources = await desktopCapturer.getSources({ types: ['screen', 'window'], thumbnailSize: { width: 320, height: 180 } });
       const screen = sources.find(s => s.id.startsWith('screen:')) || sources[0];
-      callback(screen ? { video: screen, audio: 'loopback' } : {});
+      callback(screen ? { video: screen, ...(request.audioRequested ? { audio: 'loopback' } : {}) } : {});
     } catch { callback({}); }
-  }, { useSystemPicker: true });
+  }, { useSystemPicker: false });
   ipcMain.handle('settings:get', () => readSettings());
   ipcMain.handle('settings:save', (_e, value) => {
     const old = readSettings();
@@ -61,24 +61,18 @@ app.whenReady().then(() => {
     fs.mkdirSync(dir, { recursive: true });
     const safeName = String(payload.name || 'Fenix-Recording').replace(/[<>:"/\\|?*]+/g, '_').slice(0, 80);
     const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-    if (!payload || typeof payload.base64 !== 'string' || payload.base64.length < 1400) {
-      throw new Error('Видеоданные пустые или слишком маленькие. Запись не сохранена.');
-    }
-    const buffer = Buffer.from(payload.base64, 'base64');
-    if (buffer.length < 1024 || buffer.subarray(0, 4).toString('hex') !== '1a45dfa3') {
-      throw new Error(`Некорректный WebM: ${buffer.length} байт. Повреждённый файл не будет сохранён.`);
-    }
     const target = path.join(dir, `${safeName}-${stamp}.webm`);
-    const temp = `${target}.tmp`;
-    fs.writeFileSync(temp, buffer);
-    fs.renameSync(temp, target);
-    return { path: target, dir, bytes: buffer.length };
+    if (!payload || typeof payload.base64 !== 'string' || !payload.base64.length) throw new Error('Не получены данные записи.');
+    const bytes = Buffer.from(payload.base64, 'base64');
+    if (bytes.length < 1024) throw new Error(`Отказано в сохранении пустой записи (${bytes.length} байт).`);
+    fs.writeFileSync(target, bytes);
+    return { path: target, dir, size: bytes.length };
+
   });
   ipcMain.handle('record:convert', async (_e, inputPath) => {
     const ffmpegPath = app.isPackaged
       ? path.join(process.resourcesPath, 'ffmpeg.exe')
       : require('ffmpeg-static');
-    if (!fs.existsSync(inputPath) || fs.statSync(inputPath).size < 1024) throw new Error('Исходный WebM отсутствует или повреждён.');
     const outputPath = inputPath.replace(/\.webm$/i, '.mp4');
     const { spawn } = require('child_process');
     return await new Promise((resolve, reject) => {
@@ -89,7 +83,8 @@ app.whenReady().then(() => {
       child.on('error', reject);
       child.on('close', code => {
         if (code === 0 && fs.existsSync(outputPath) && fs.statSync(outputPath).size > 1024) {
-          resolve({ path: outputPath });
+          try { fs.unlinkSync(inputPath); } catch {}
+          resolve({ path: outputPath, size: fs.statSync(outputPath).size });
         } else reject(new Error(`FFmpeg conversion failed (${code}). ${stderr.slice(-1200)}`));
       });
     });

@@ -1,5 +1,5 @@
 const $ = id => document.getElementById(id);
-let settings, recording = false, recorder, chunks = [], micStream, displayStream, mixedStream, audioContext, micAnalyser, meterTimer, startedAt, finishing = false;
+let settings, recording = false, recorder, chunks = [], micStream, displayStream, mixedStream, audioContext, micAnalyser, meterTimer, startedAt;
 function toast(message) {
   const el = $('toast'); el.textContent = message; el.classList.add('show');
   clearTimeout(toast.timer); toast.timer = setTimeout(() => el.classList.remove('show'), 3800);
@@ -71,39 +71,38 @@ function makeAudioGraph(display, mic) {
   }
   return destination.stream;
 }
-async function waitForVideoFrame(stream) {
-  const video = document.createElement('video');
-  video.muted = true; video.playsInline = true; video.srcObject = stream;
-  video.style.position = 'fixed'; video.style.left = '-9999px'; video.style.width = '2px'; video.style.height = '2px';
-  document.body.appendChild(video);
-  try {
-    await video.play();
-    await new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => reject(new Error('Не поступают кадры с выбранного экрана. Повтори выбор окна/монитора.')), 8000);
-      const done = () => { clearTimeout(timeout); resolve(); };
-      if (typeof video.requestVideoFrameCallback === 'function') video.requestVideoFrameCallback(done);
-      else if (video.videoWidth > 0 && video.videoHeight > 0) done();
-      else video.addEventListener('loadeddata', done, { once: true });
-    });
-    if (!video.videoWidth || !video.videoHeight) throw new Error('Захват экрана не передал изображение.');
-  } finally { video.pause(); video.srcObject = null; video.remove(); }
-}
 function chooseMime() {
-  for (const mime of ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm']) {
-    if (MediaRecorder.isTypeSupported(mime)) return mime;
+  for (const mime of ['video/webm;codecs=vp8,opus', 'video/webm;codecs=vp9,opus', 'video/webm']) {
+    try { if (MediaRecorder.isTypeSupported(mime)) return mime; } catch {}
   }
   return '';
+}
+
+async function waitForFirstVideoFrame(stream) {
+  const track = stream.getVideoTracks()[0];
+  if (!track || track.readyState !== 'live') throw new Error('Система не предоставила активный видеопоток экрана.');
+  const video = document.createElement('video');
+  video.muted = true;
+  video.playsInline = true;
+  video.srcObject = new MediaStream([track]);
+  await video.play();
+  await new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error('Не удалось получить первый кадр экрана за 10 секунд.')), 10000);
+    const done = () => { clearTimeout(timeout); resolve(); };
+    if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA && video.videoWidth > 0) return done();
+    video.addEventListener('loadeddata', done, { once: true });
+    track.addEventListener('ended', () => { clearTimeout(timeout); reject(new Error('Захват экрана был остановлен.')); }, { once: true });
+  });
+  if (video.videoWidth < 1 || video.videoHeight < 1) throw new Error('Захваченный экран не содержит видеокадров.');
+  return video;
 }
 async function startRecording() {
   if (!navigator.mediaDevices?.getDisplayMedia) throw new Error('Захват экрана не поддерживается этой системой.');
   const fps = Number($('fps').value);
   displayStream = await navigator.mediaDevices.getDisplayMedia({
-    video: { frameRate: { ideal: fps, max: fps }, width: { ideal: 1920 }, height: { ideal: 1080 } },
+    video: { frameRate: { ideal: fps, max: fps }, width: { ideal: 1280 }, height: { ideal: 720 } },
     audio: $('systemEnabled').checked
   });
-  const videoTracks = displayStream.getVideoTracks().filter(t => t.readyState === 'live');
-  if (!videoTracks.length) throw new Error('Windows не предоставила видеопоток. Повтори выбор экрана.');
-  await waitForVideoFrame(displayStream);
   micStream = null;
   if ($('micEnabled').checked) {
     try {
@@ -113,77 +112,66 @@ async function startRecording() {
       throw new Error('Не удалось открыть микрофон. Проверь устройство и разрешения Windows.');
     }
   }
+  const previewVideo = await waitForFirstVideoFrame(displayStream);
   const audio = makeAudioGraph(displayStream, micStream);
+  if (audioContext?.state === 'suspended') await audioContext.resume();
+  const videoTracks = displayStream.getVideoTracks();
+  videoTracks[0].contentHint = 'motion';
   mixedStream = new MediaStream([...videoTracks, ...audio.getAudioTracks()]);
-  chunks = []; finishing = false;
+  chunks = [];
   const mimeType = chooseMime();
-  const options = { videoBitsPerSecond: $('quality').value === 'performance' ? 2500000 : $('quality').value === 'quality' ? 8000000 : 4500000 };
-  if (mimeType) options.mimeType = mimeType;
-  recorder = new MediaRecorder(mixedStream, options);
-  recorder.ondataavailable = e => {
-    if (e.data && e.data.size > 0) chunks.push(e.data);
-  };
-  recorder.onerror = e => {
-    const msg = e.error?.message || 'неизвестная ошибка MediaRecorder';
-    toast(`Ошибка записи: ${msg}`);
-  };
-  videoTracks[0].addEventListener('ended', () => { if (recording) stopRecording(); }, { once: true });
-  await new Promise((resolve, reject) => {
-    recorder.addEventListener('start', resolve, { once: true });
-    recorder.addEventListener('error', e => reject(e.error || new Error('MediaRecorder не смог начать запись')), { once: true });
-    try { recorder.start(1000); } catch (e) { reject(e); }
-  });
+  const recorderOptions = { videoBitsPerSecond: $('quality').value === 'performance' ? 2500000 : $('quality').value === 'quality' ? 8000000 : 4500000 };
+  if (mimeType) recorderOptions.mimeType = mimeType;
+  recorder = new MediaRecorder(mixedStream, recorderOptions);
+  recorder.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+  recorder.onerror = e => { toast(`Ошибка записи: ${e.error?.message || 'неизвестная ошибка'}`); };
+  recorder.onstop = finishRecording;
+  displayStream.getVideoTracks()[0].addEventListener('ended', () => { if (recording) stopRecording(); });
+  recorder.start(1000);
+  if (recorder.state !== 'recording') throw new Error('MediaRecorder не перешёл в режим записи.');
   recording = true; startedAt = Date.now();
+  previewVideo.pause(); previewVideo.srcObject = null;
   $('recordBtn').classList.add('recording'); $('recordBtn').innerHTML = '<span class="btn-rec-dot"></span> ОСТАНОВИТЬ ЗАПИСЬ';
   setState('Идёт запись', `Запись ${fps} FPS · не закрывай программу`, true);
 }
 async function stopRecording() {
-  if (!recording || finishing) return;
-  recording = false; finishing = true;
+  if (!recording) return;
+  recording = false;
   cancelAnimationFrame(meterTimer);
   $('recordBtn').disabled = true;
   $('recordBtn').textContent = 'СОХРАНЕНИЕ...';
-  setState('Сохраняем видео', 'Завершаем запись и проверяем видеопоток');
+  setState('Сохраняем видео', 'Не закрывай программу, идёт обработка файла');
+  if (recorder && recorder.state !== 'inactive') recorder.stop();
+}
+async function finishRecording() {
   try {
-    if (recorder && recorder.state !== 'inactive') {
-      // Flush the last buffered fragment before stopping. The final dataavailable
-      // event is delivered before the stop event according to MediaRecorder spec.
-      try { recorder.requestData(); } catch {}
-      await new Promise((resolve, reject) => {
-        const timer = setTimeout(() => reject(new Error('Тайм-аут завершения записи. Попробуй записать короткий ролик ещё раз.')), 15000);
-        recorder.addEventListener('stop', () => { clearTimeout(timer); resolve(); }, { once: true });
-        recorder.addEventListener('error', e => { clearTimeout(timer); reject(e.error || new Error('Ошибка MediaRecorder')); }, { once: true });
-        try { recorder.stop(); } catch (e) { clearTimeout(timer); reject(e); }
-      });
+    const blob = new Blob(chunks, { type: recorder.mimeType || 'video/webm' });
+    if (chunks.length === 0 || blob.size < 1024) throw new Error(`Запись не содержит видеоданных (получено ${blob.size} байт). Проверь захват экрана и повтори попытку.`);
+    const base64 = await new Promise((resolve, reject) => {
+      const reader = new FileReader(); reader.onload = () => resolve(String(reader.result).split(',')[1]); reader.onerror = reject; reader.readAsDataURL(blob);
+    });
+    const saved = await window.fenix.saveRecording({ base64, name: $('recordName').value || 'Fenix-Recording' });
+    let finalPath = saved.path;
+    setState('Конвертируем в MP4', 'Почти готово — обрабатываем видео и звук');
+    try {
+      const converted = await window.fenix.convertRecording(saved.path);
+      finalPath = converted.path;
+    } catch (e) {
+      toast('MP4 не удалось создать. Исходный WebM сохранён: ' + e.message.slice(0, 180));
     }
-    await finishRecording();
+    setState('Запись сохранена', finalPath);
+    toast(`Видео сохранено: ${finalPath}`);
   } catch (e) {
     setState('Не удалось сохранить', e.message || 'Неизвестная ошибка');
     toast(e.message || 'Ошибка сохранения');
   } finally {
     [displayStream, micStream, mixedStream].filter(Boolean).forEach(s => s.getTracks().forEach(t => t.stop()));
     if (audioContext) { try { await audioContext.close(); } catch {} }
-    displayStream = micStream = mixedStream = null; recorder = null; chunks = []; micAnalyser = null; finishing = false;
+    displayStream = micStream = mixedStream = null; recorder = null; chunks = [];
     $('recordBtn').disabled = false; $('recordBtn').classList.remove('recording');
     $('recordBtn').innerHTML = '<span class="btn-rec-dot"></span> НАЧАТЬ ЗАПИСЬ';
     $('micMeter').style.width = '0%';
   }
-}
-async function finishRecording() {
-  const blob = new Blob(chunks, { type: recorder?.mimeType || 'video/webm' });
-  if (blob.size < 1024) throw new Error(`Запись не содержит видео (получено ${blob.size} байт из ${chunks.length} фрагментов). Проверь выбор экрана и повтори запись.`);
-  const base64 = await new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result).split(',')[1]);
-    reader.onerror = () => reject(reader.error || new Error('Не удалось прочитать видеозапись'));
-    reader.readAsDataURL(blob);
-  });
-  setState('Сохраняем исходник', `Получено ${(blob.size / 1024 / 1024).toFixed(2)} МБ видео`);
-  const saved = await window.fenix.saveRecording({ base64, name: $('recordName').value || 'Fenix-Recording' });
-  setState('Проверяем и конвертируем', 'Создаём совместимый MP4 H.264');
-  const converted = await window.fenix.convertRecording(saved.path);
-  setState('Запись сохранена', converted.path);
-  toast(`Видео сохранено: ${converted.path}`);
 }
 $('recordBtn').addEventListener('click', async () => {
   if (recording) return stopRecording();

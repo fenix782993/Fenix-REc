@@ -1,28 +1,46 @@
-# Fenix Recorder 0.2.1
+# Fenix Recorder
 
-Windows screen recorder built with Electron and FFmpeg.
+A Windows desktop screen recorder starter project. Electron UI, desktop capture, microphone capture, system/loopback audio where supported by Windows/Electron, WebM recording, and FFmpeg MP4 conversion.
 
-## Build on Windows
+## Requirements
+- Windows 10/11 x64
+- Node.js 22 LTS
+- Microphone permission in Windows settings
 
-Requirements: Node.js 20+ and Windows x64.
-
+## Run locally
 ```powershell
-npm.cmd install
-npm.cmd install-scripts approve ffmpeg-static electron
-npm.cmd rebuild ffmpeg-static
-npm.cmd run dist
+npm install
+npm start
 ```
 
-Installer: `dist/Fenix-Recorder-Setup-0.2.1.exe`.
+## Build installer locally
+```powershell
+npm install
+npm run dist
+```
+Installer will be in `dist/`.
 
-## Recording notes
+## Build on GitHub
+1. Create a repository named `Fenix-Recorder` on GitHub.
+2. Upload/push all project files to the `main` branch.
+3. Open **Actions** and enable workflows if GitHub asks.
+4. Run **Build Fenix Recorder for Windows** with **Run workflow**.
+5. Download `Fenix-Recorder-Windows-Installer` from the completed workflow's **Artifacts** section.
+6. To publish a public release, create and push a version tag, for example:
+   ```powershell
+   git tag v0.1.0
+   git push origin v0.1.0
+   ```
+   The workflow will attach the installer to the GitHub Release.
 
-- Screen capture waits for the first actual video frame before starting MediaRecorder.
-- MediaRecorder chunks are collected and flushed before the final save.
-- Very small or invalid WebM data is rejected instead of being reported as a successful recording.
-- Original WebM files are retained after MP4 conversion for troubleshooting/recovery.
-- MP4 export uses H.264 video, AAC audio and fast-start metadata.
+## Audio notes
+- Microphone is captured separately and mixed into the recording.
+- System/game audio depends on Windows loopback capture support and the display-capture picker. When choosing what to share, enable system audio if the picker exposes that option.
+- If a game uses exclusive fullscreen or protected capture, switch it to borderless/windowed mode or record the full display.
+- Current capture path records WebM first and converts to MP4 with FFmpeg. If conversion fails, the WebM is retained.
+- This first build uses Chromium desktop capture, not a native DirectX Desktop Duplication pipeline. It is a functional starting point, but performance and audio routing must be tested on the target PC. No recorder can guarantee zero FPS loss on every hardware setup.
 
-## Troubleshooting
-
-If Windows capture permission is denied, close other screen-capture applications and restart Fenix Recorder. Select a monitor/window in the Windows capture picker. For a first test, record for at least 5 seconds.
+## Quality presets
+- Performance: lower video bitrate
+- Balanced: default bitrate
+- High quality: higher bitrate
