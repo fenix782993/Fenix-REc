@@ -4,7 +4,8 @@ contextBridge.exposeInMainWorld('fenix', {
   saveSettings: value => ipcRenderer.invoke('settings:save', value),
   chooseFolder: () => ipcRenderer.invoke('folder:choose'),
   openFolder: () => ipcRenderer.invoke('folder:open'),
-  saveRecording: payload => ipcRenderer.invoke('record:save', payload),
-  convertRecording: path => ipcRenderer.invoke('record:convert', path),
-  getCaptureSources: () => ipcRenderer.invoke('capture:sources')
+  startRecording: options => ipcRenderer.invoke('record:start', options),
+  stopRecording: () => ipcRenderer.invoke('record:stop'),
+  openLog: () => ipcRenderer.invoke('diagnostics:open-log'),
+  onRecordingEnded: callback => ipcRenderer.on('record:ended', (_event, data) => callback(data))
 });
