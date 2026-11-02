@@ -74,15 +74,59 @@ app.whenReady().then(() => {
     const crf = quality === 'quality' ? '19' : quality === 'performance' ? '26' : '23';
     const ffmpeg = getFfmpegPath();
     if (!ffmpeg || !fs.existsSync(ffmpeg)) throw new Error(`FFmpeg не найден: ${ffmpeg || 'путь пустой'}`);
-    const args = [
-      '-hide_banner', '-loglevel', 'info', '-y',
-      '-f', 'gdigrab', '-framerate', String(fps), '-draw_mouse', '1', '-i', 'desktop',
-      '-an', '-c:v', 'libx264', '-preset', preset, '-crf', crf,
-      '-pix_fmt', 'yuv420p', '-r', String(fps), '-movflags', '+faststart', output
+    const wantMic = options.micEnabled !== false;
+    const wantSystem = options.systemEnabled !== false;
+    const micGain = Math.max(0.5, Math.min(2, Number(options.micGain || 100) / 100));
+    // Prefer DirectX Desktop Duplication (ddagrab) for smoother capture of accelerated apps.
+    // If the bundled FFmpeg does not support it, retry with gdigrab.
+    const videoInputs = [
+      ['ddagrab', ['-f', 'lavfi', '-i', `ddagrab=framerate=${fps}:draw_mouse=1`]],
+      ['gdigrab', ['-f', 'gdigrab', '-framerate', String(fps), '-draw_mouse', '1', '-i', 'desktop']]
     ];
-    log(`START output=${output} fps=${fps} quality=${quality} ffmpeg=${ffmpeg}`);
-    const child = spawn(ffmpeg, args, { windowsHide: true, stdio: ['pipe', 'ignore', 'pipe'] });
-    const capture = { child, output, stderr: '', stopping: false, closed: false, closePromise: null };
+    const audioArgs = [];
+    if (wantSystem) audioArgs.push('-thread_queue_size', '1024', '-f', 'wasapi', '-loopback', '1', '-i', 'default');
+    if (wantMic) audioArgs.push('-thread_queue_size', '1024', '-f', 'wasapi', '-i', 'default');
+    const makeArgs = (videoInput, withAudio) => {
+      const args = ['-hide_banner', '-loglevel', 'info', '-y', ...videoInput];
+      if (withAudio && audioArgs.length) {
+        args.push(...audioArgs);
+        const audioCount = Number(wantSystem) + Number(wantMic);
+        if (audioCount === 2) {
+          args.push('-filter_complex', `[1:a]aresample=async=1:first_pts=0[sys];[2:a]volume=${micGain},aresample=async=1:first_pts=0[mic];[sys][mic]amix=inputs=2:duration=longest:dropout_transition=2[aout]`, '-map', '0:v:0', '-map', '[aout]');
+        } else if (wantSystem) {
+          args.push('-map', '0:v:0', '-map', '1:a:0');
+        } else {
+          args.push('-filter_complex', `[1:a]volume=${micGain},aresample=async=1:first_pts=0[aout]`, '-map', '0:v:0', '-map', '[aout]');
+        }
+        args.push('-c:a', 'aac', '-b:a', '192k');
+      } else {
+        args.push('-map', '0:v:0', '-an');
+      }
+      args.push('-c:v', 'libx264', '-preset', preset, '-crf', crf, '-pix_fmt', 'yuv420p', '-r', String(fps), '-movflags', '+faststart', output);
+      return args;
+    };
+    log(`START output=${output} fps=${fps} quality=${quality} mic=${wantMic} system=${wantSystem} ffmpeg=${ffmpeg}`);
+    let child;
+    let selectedEngine = '';
+    let startupError = null;
+    for (const [engine, videoInput] of videoInputs) {
+      child = spawn(ffmpeg, makeArgs(videoInput, audioArgs.length > 0), { windowsHide: true, stdio: ['pipe', 'ignore', 'pipe'] });
+      const startup = await new Promise(resolve => {
+        let stderr = '';
+        let settled = false;
+        const timer = setTimeout(() => { if (!settled) { settled = true; resolve({ ok: true, stderr }); } }, 1800);
+        child.stderr.on('data', data => { stderr = (stderr + data.toString()).slice(-8000); });
+        child.once('error', error => { if (!settled) { settled = true; clearTimeout(timer); resolve({ ok: false, stderr, error }); } });
+        child.once('close', code => { if (!settled) { settled = true; clearTimeout(timer); resolve({ ok: false, code, stderr }); } });
+      });
+      if (startup.ok) { selectedEngine = engine; break; }
+      startupError = startup;
+      log(`ENGINE_START_FAILED engine=${engine} code=${startup.code} error=${startup.error || ''} stderr=${startup.stderr}`);
+      if (child && !child.killed) { try { child.kill(); } catch {} }
+    }
+    if (!selectedEngine) throw new Error(`Не удалось запустить захват экрана. ${startupError?.stderr || startupError?.error || ''}`);
+    log(`ENGINE_SELECTED ${selectedEngine}`);
+    const capture = { child, output, stderr: '', stopping: false, closed: false, closePromise: null, engine: selectedEngine };
     capture.closePromise = new Promise(resolve => {
       child.on('close', (code, signal) => {
         capture.closed = true;
@@ -100,19 +144,9 @@ app.whenReady().then(() => {
       const part = data.toString();
       capture.stderr = (capture.stderr + part).slice(-12000);
     });
-    const spawned = await new Promise((resolve, reject) => {
-      const timer = setTimeout(() => resolve(true), 1200);
-      child.once('spawn', () => {});
-      child.once('error', error => { clearTimeout(timer); reject(error); });
-      child.once('close', code => {
-        clearTimeout(timer);
-        reject(new Error(`FFmpeg завершился сразу (код ${code}). ${capture.stderr.slice(-1600)}`));
-      });
-    }).catch(error => { activeCapture = null; throw error; });
-    if (!spawned) throw new Error('Не удалось запустить FFmpeg.');
     if (capture.closed) throw new Error(`FFmpeg остановился. ${capture.stderr.slice(-1600)}`);
     activeCapture = capture;
-    return { path: output, fps, started: true };
+    return { path: output, fps, started: true, engine: selectedEngine, audio: audioArgs.length > 0 };
   });
 
   ipcMain.handle('record:stop', async () => {

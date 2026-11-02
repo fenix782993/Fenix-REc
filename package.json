@@ -1,7 +1,7 @@
 {
   "name": "fenix-recorder",
-  "version": "0.3.0",
-  "description": "Fenix Recorder — native FFmpeg Windows desktop recorder",
+  "version": "0.3.1",
+  "description": "Fenix Recorder — DirectX and FFmpeg Windows desktop recorder",
   "main": "electron/main.cjs",
   "author": "Fenix",
   "license": "MIT",
